@@ -32,9 +32,10 @@ type bucketChunkReader struct {
 
 	// Mutex protects access to following fields, when updated from chunks-loading goroutines.
 	// After chunks are loaded, mutex is no longer used.
-	mtx        sync.Mutex
-	stats      *queryStats
-	chunkBytes []*[]byte // Byte slice to return to the chunk pool on close.
+	mtx         sync.Mutex
+	stats       *queryStats
+	chunkBytes  []*[]byte // Byte slice to return to the chunk pool on close.
+	chunkSlices []*chunkSlice
 }
 
 func newBucketChunkReader(ctx context.Context, block *bucketBlock) *bucketChunkReader {
@@ -50,7 +51,10 @@ func (r *bucketChunkReader) Close() error {
 	r.block.pendingReaders.Done()
 
 	for _, b := range r.chunkBytes {
-		r.block.chunkPool.Put(b)
+		r.block.chunkBytesPool.Put(b)
+	}
+	for _, sl := range r.chunkSlices {
+		r.block.chunkSlicePool.put(sl)
 	}
 	return nil
 }
@@ -70,7 +74,7 @@ func (r *bucketChunkReader) addLoad(id chunks.ChunkRef, seriesEntry, chunk int) 
 }
 
 // load loads all added chunks and saves resulting aggrs to res.
-func (r *bucketChunkReader) load(res []seriesEntry, aggrs []storepb.Aggr) error {
+func (r *bucketChunkReader) load(res []seriesEntry) error {
 	g, ctx := errgroup.WithContext(r.ctx)
 
 	for seq, pIdxs := range r.toLoad {
@@ -86,7 +90,7 @@ func (r *bucketChunkReader) load(res []seriesEntry, aggrs []storepb.Aggr) error 
 			p := p
 			indices := pIdxs[p.ElemRng[0]:p.ElemRng[1]]
 			g.Go(func() error {
-				return r.loadChunks(ctx, res, aggrs, seq, p, indices)
+				return r.loadChunks(ctx, res, seq, p, indices)
 			})
 		}
 	}
@@ -95,7 +99,7 @@ func (r *bucketChunkReader) load(res []seriesEntry, aggrs []storepb.Aggr) error 
 
 // loadChunks will read range [start, end] from the segment file with sequence number seq.
 // This data range covers chunks starting at supplied offsets.
-func (r *bucketChunkReader) loadChunks(ctx context.Context, res []seriesEntry, aggrs []storepb.Aggr, seq int, part Part, pIdxs []loadIdx) error {
+func (r *bucketChunkReader) loadChunks(ctx context.Context, res []seriesEntry, seq int, part Part, pIdxs []loadIdx) error {
 	fetchBegin := time.Now()
 
 	// Get a reader for the required range.
@@ -166,7 +170,7 @@ func (r *bucketChunkReader) loadChunks(ctx context.Context, res []seriesEntry, a
 		// There is also crc32 after the chunk, but we ignore that.
 		chunkLen = n + 1 + int(chunkDataLen)
 		if chunkLen <= len(cb) {
-			err = populateChunk(&(res[pIdx.seriesEntry].chks[pIdx.chunk]), rawChunk(cb[n:chunkLen]), aggrs, r.save)
+			err = populateChunk(&(res[pIdx.seriesEntry].chks[pIdx.chunk]), cb[n:chunkLen], r.getChunk, r.save)
 			if err != nil {
 				return errors.Wrap(err, "populate chunk")
 			}
@@ -197,17 +201,24 @@ func (r *bucketChunkReader) loadChunks(ctx context.Context, res []seriesEntry, a
 		r.stats.chunksFetchCount++
 		r.stats.chunksFetchDurationSum += time.Since(fetchBegin)
 		r.stats.chunksFetchedSizeSum += len(*nb)
-		err = populateChunk(&(res[pIdx.seriesEntry].chks[pIdx.chunk]), rawChunk((*nb)[n:]), aggrs, r.save)
+		err = populateChunk(&(res[pIdx.seriesEntry].chks[pIdx.chunk]), (*nb)[n:], r.getChunk, r.save)
 		if err != nil {
-			r.block.chunkPool.Put(nb)
+			r.block.chunkBytesPool.Put(nb)
 			return errors.Wrap(err, "populate chunk")
 		}
 		r.stats.chunksTouched++
 		r.stats.chunksTouchedSizeSum += int(chunkDataLen)
 
-		r.block.chunkPool.Put(nb)
+		r.block.chunkBytesPool.Put(nb)
 	}
 	return nil
+}
+
+func (r *bucketChunkReader) getChunk() *storepb.Chunk {
+	if len(r.chunkSlices) == 0 || r.chunkSlices[len(r.chunkSlices)-1].isExhausted() {
+		r.chunkSlices = append(r.chunkSlices, r.block.chunkSlicePool.get())
+	}
+	return r.chunkSlices[len(r.chunkSlices)-1].next()
 }
 
 // save saves a copy of b's payload to a memory pool of its own and returns a new byte slice referencing said copy.
@@ -216,7 +227,7 @@ func (r *bucketChunkReader) save(b []byte) ([]byte, error) {
 	// Ensure we never grow slab beyond original capacity.
 	if len(r.chunkBytes) == 0 ||
 		cap(*r.chunkBytes[len(r.chunkBytes)-1])-len(*r.chunkBytes[len(r.chunkBytes)-1]) < len(b) {
-		s, err := r.block.chunkPool.Get(len(b))
+		s, err := r.block.chunkBytesPool.Get(len(b))
 		if err != nil {
 			return nil, errors.Wrap(err, "allocate chunk bytes")
 		}

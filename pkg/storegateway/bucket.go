@@ -558,7 +558,6 @@ func blockSeries(
 	seriesLimiter SeriesLimiter, // Rate limiter for loading series.
 	skipChunks bool, // If true, chunks are not loaded and minTime/maxTime are ignored.
 	minTime, maxTime int64, // Series must have data in this time range to be returned (ignored if skipChunks=true).
-	loadAggregates []storepb.Aggr, // List of aggregates to load when loading chunks.
 	logger log.Logger,
 ) (storepb.SeriesSet, *safeQueryStats, error) {
 	span, ctx := tracing.StartSpan(ctx, "blockSeries()")
@@ -708,7 +707,7 @@ func blockSeries(
 		return newBucketSeriesSet(res), indexStats.merge(&seriesCacheStats), nil
 	}
 
-	if err := chunkr.load(res, loadAggregates); err != nil {
+	if err := chunkr.load(res); err != nil {
 		return nil, nil, errors.Wrap(err, "load chunks")
 	}
 
@@ -765,13 +764,17 @@ func storeCachedSeries(ctx context.Context, indexCache indexcache.IndexCache, us
 	indexCache.StoreSeries(ctx, userID, blockID, entry.MatchersKey, shard, data)
 }
 
-func populateChunk(out *storepb.AggrChunk, in chunkenc.Chunk, aggrs []storepb.Aggr, save func([]byte) ([]byte, error)) error {
+func populateChunk(out *storepb.AggrChunk, chunkBytes []byte, getChunk func() *storepb.Chunk, save func([]byte) ([]byte, error)) error {
+	in := rawChunk(chunkBytes)
 	if in.Encoding() == chunkenc.EncXOR {
 		b, err := save(in.Bytes())
 		if err != nil {
 			return err
 		}
-		out.Raw = &storepb.Chunk{Type: storepb.Chunk_XOR, Data: b}
+		chk := getChunk()
+		chk.Type = storepb.Chunk_XOR
+		chk.Data = b
+		out.Raw = chk
 		return nil
 	}
 	return errors.Errorf("unsupported chunk encoding %d", in.Encoding())
@@ -915,7 +918,6 @@ func (s *BucketStore) Series(req *storepb.SeriesRequest, srv storepb.Store_Serie
 				seriesLimiter,
 				req.SkipChunks,
 				req.MinTime, req.MaxTime,
-				req.Aggregates,
 				s.logger,
 			)
 			if err != nil {
@@ -1144,7 +1146,7 @@ func blockLabelNames(ctx context.Context, indexr *bucketIndexReader, matchers []
 
 	// We ignore request's min/max time and query the entire block to make the result cacheable.
 	minTime, maxTime := indexr.block.meta.MinTime, indexr.block.meta.MaxTime
-	seriesSet, _, err := blockSeries(ctx, indexr, nil, matchers, nil, nil, nil, seriesLimiter, true, minTime, maxTime, nil, logger)
+	seriesSet, _, err := blockSeries(ctx, indexr, nil, matchers, nil, nil, nil, seriesLimiter, true, minTime, maxTime, logger)
 	if err != nil {
 		return nil, errors.Wrap(err, "fetch series")
 	}
@@ -1504,14 +1506,15 @@ func (s *bucketBlockSet) getFor(mint, maxt, maxResolutionMillis int64, blockMatc
 // bucketBlock represents a block that is located in a bucket. It holds intermediate
 // state for the block on local disk.
 type bucketBlock struct {
-	userID     string
-	logger     log.Logger
-	metrics    *BucketStoreMetrics
-	bkt        objstore.BucketReader
-	meta       *metadata.Meta
-	dir        string
-	indexCache indexcache.IndexCache
-	chunkPool  pool.Bytes
+	userID         string
+	logger         log.Logger
+	metrics        *BucketStoreMetrics
+	bkt            objstore.BucketReader
+	meta           *metadata.Meta
+	dir            string
+	indexCache     indexcache.IndexCache
+	chunkSlicePool *chunkSlicePool
+	chunkBytesPool pool.Bytes
 
 	indexHeaderReader indexheader.Reader
 
@@ -1537,7 +1540,7 @@ func newBucketBlock(
 	bkt objstore.BucketReader,
 	dir string,
 	indexCache indexcache.IndexCache,
-	chunkPool pool.Bytes,
+	chunkBytesPool pool.Bytes,
 	indexHeadReader indexheader.Reader,
 	p Partitioner,
 ) (b *bucketBlock, err error) {
@@ -1547,7 +1550,8 @@ func newBucketBlock(
 		metrics:           metrics,
 		bkt:               bkt,
 		indexCache:        indexCache,
-		chunkPool:         chunkPool,
+		chunkSlicePool:    newChunksSlicePool(),
+		chunkBytesPool:    chunkBytesPool,
 		dir:               dir,
 		partitioner:       p,
 		meta:              meta,
@@ -1611,7 +1615,7 @@ func (b *bucketBlock) readChunkRange(ctx context.Context, seq int, off, length i
 	defer runutil.CloseWithLogOnErr(b.logger, reader, "readChunkRange close range reader")
 
 	// Get a buffer from the pool.
-	chunkBuffer, err := b.chunkPool.Get(chunkRanges.size())
+	chunkBuffer, err := b.chunkBytesPool.Get(chunkRanges.size())
 	if err != nil {
 		return nil, errors.Wrap(err, "allocate chunk bytes")
 	}
