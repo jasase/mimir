@@ -386,12 +386,13 @@ type blockBaseSeriesSet struct {
 
 	bufChks []chunks.Meta
 	bufLbls labels.Labels
+	builder labels.SimpleBuilder
 	err     error
 }
 
 func (b *blockBaseSeriesSet) Next() bool {
 	for b.p.Next() {
-		if err := b.index.Series(b.p.At(), &b.bufLbls, &b.bufChks); err != nil {
+		if err := b.index.Series(b.p.At(), &b.builder, &b.bufLbls, &b.bufChks); err != nil {
 			// Postings may be stale. Skip if no underlying series exists.
 			if errors.Cause(err) == storage.ErrNotFound {
 				continue
@@ -455,8 +456,7 @@ func (b *blockBaseSeriesSet) Next() bool {
 			intervals = intervals.Add(tombstones.Interval{Mint: b.maxt + 1, Maxt: math.MaxInt64})
 		}
 
-		b.currLabels = make(labels.Labels, len(b.bufLbls))
-		copy(b.currLabels, b.bufLbls)
+		b.currLabels = b.bufLbls.Copy()
 
 		b.currIterFn = func() *populateWithDelGenericSeriesIterator {
 			return newPopulateWithDelGenericSeriesIterator(b.chunks, chks, intervals)
@@ -681,7 +681,6 @@ func newBlockSeriesSet(i IndexReader, c ChunkReader, t tombstones.Reader, p inde
 			mint:            mint,
 			maxt:            maxt,
 			disableTrimming: disableTrimming,
-			bufLbls:         make(labels.Labels, 0, 10),
 		},
 	}
 }
@@ -714,7 +713,6 @@ func newBlockChunkSeriesSet(i IndexReader, c ChunkReader, t tombstones.Reader, p
 			mint:            mint,
 			maxt:            maxt,
 			disableTrimming: disableTrimming,
-			bufLbls:         make(labels.Labels, 0, 10),
 		},
 	}
 }
