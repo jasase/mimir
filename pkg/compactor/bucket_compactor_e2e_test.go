@@ -344,7 +344,7 @@ func TestGroupCompactE2E(t *testing.T) {
 				numSamples: 100, mint: 0, maxt: 499, extLset: extLabels, res: 124,
 				series: []labels.Labels{
 					labels.FromStrings("a", "1"),
-					{{Name: "a", Value: "2"}, {Name: "b", Value: "2"}},
+					labels.FromStrings("a", "1", "b", "2"),
 					labels.FromStrings("a", "3"),
 					labels.FromStrings("a", "4"),
 				},
