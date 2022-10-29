@@ -100,19 +100,19 @@ func TestFingerprintCollisions(t *testing.T) {
 	const _label2 = "KiqbryhzUpn"
 
 	metric := labels.NewBuilder(labels.FromStrings("__name__", "logs"))
-	c1 = metric.Set("_", _label1).Labels(nil)
-	c2 = metric.Set("_", _label2).Labels(nil)
+	c1 = metric.Set("_", _label1).Labels(labels.EmptyLabels())
+	c2 = metric.Set("_", _label2).Labels(labels.EmptyLabels())
 	verifyCollision(t, true, c1, c2)
 
 	metric = labels.NewBuilder(labels.FromStrings("__name__", "up", "instance", "hello"))
-	c1 = metric.Set("_", _label1).Labels(nil)
-	c2 = metric.Set("_", _label2).Labels(nil)
+	c1 = metric.Set("_", _label1).Labels(labels.EmptyLabels())
+	c2 = metric.Set("_", _label2).Labels(labels.EmptyLabels())
 	verifyCollision(t, true, c1, c2)
 
 	// here it breaks, because "Z" label is sorted before "_" label.
 	metric = labels.NewBuilder(labels.FromStrings("__name__", "up", "Z", "hello"))
-	c1 = metric.Set("_", _label1).Labels(nil)
-	c2 = metric.Set("_", _label2).Labels(nil)
+	c1 = metric.Set("_", _label1).Labels(labels.EmptyLabels())
+	c2 = metric.Set("_", _label2).Labels(labels.EmptyLabels())
 	verifyCollision(t, false, c1, c2)
 
 	// A="K6sjsNNczPl" and A="cswpLMIZpwt" label has similar property.
@@ -123,14 +123,14 @@ func TestFingerprintCollisions(t *testing.T) {
 	const Alabel2 = "cswpLMIZpwt"
 
 	metric = labels.NewBuilder(labels.FromStrings("__name__", "up", "Z", "hello"))
-	c1 = metric.Set("A", Alabel1).Labels(nil)
-	c2 = metric.Set("A", Alabel2).Labels(nil)
+	c1 = metric.Set("A", Alabel1).Labels(labels.EmptyLabels())
+	c2 = metric.Set("A", Alabel2).Labels(labels.EmptyLabels())
 	verifyCollision(t, true, c1, c2)
 
 	// Adding the same suffix to the "A" label also works.
 	metric = labels.NewBuilder(labels.FromStrings("__name__", "up", "Z", "hello"))
-	c1 = metric.Set("A", Alabel1+"suffix").Labels(nil)
-	c2 = metric.Set("A", Alabel2+"suffix").Labels(nil)
+	c1 = metric.Set("A", Alabel1+"suffix").Labels(labels.EmptyLabels())
+	c2 = metric.Set("A", Alabel2+"suffix").Labels(labels.EmptyLabels())
 	verifyCollision(t, true, c1, c2)
 }
 

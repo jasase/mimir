@@ -236,14 +236,14 @@ func FastFingerprint(ls []mimirpb.LabelAdapter) model.Fingerprint {
 }
 
 // Fingerprint runs the same algorithm as Prometheus labelSetToFingerprint()
-func Fingerprint(labels labels.Labels) model.Fingerprint {
+func Fingerprint(lbls labels.Labels) model.Fingerprint {
 	sum := hashNew()
-	for _, label := range labels {
+	lbls.Range(func(label labels.Label) {
 		sum = hashAddString(sum, label.Name)
 		sum = hashAddByte(sum, model.SeparatorByte)
 		sum = hashAddString(sum, label.Value)
 		sum = hashAddByte(sum, model.SeparatorByte)
-	}
+	})
 	return model.Fingerprint(sum)
 }
 
