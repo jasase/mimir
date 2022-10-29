@@ -105,7 +105,7 @@ func New(
 		logger = log.NewNopLogger()
 	}
 	if lbls == nil {
-		lbls = func() labels.Labels { return nil }
+		lbls = func() labels.Labels { return labels.EmptyLabels() }
 	}
 
 	return &Shipper{
@@ -357,7 +357,7 @@ func (s *Shipper) upload(ctx context.Context, meta *metadata.Meta) error {
 		return errors.Wrap(err, "hard link block")
 	}
 	// Attach current labels and write a new meta file with Thanos extensions.
-	if lset := s.labels(); lset != nil {
+	if lset := s.labels(); !lset.IsEmpty() {
 		meta.Thanos.Labels = lset.Map()
 	}
 	meta.Thanos.Source = s.source
