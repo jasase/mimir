@@ -71,10 +71,13 @@ func FromLabelAdaptersToLabelsWithCopy(input []LabelAdapter) labels.Labels {
 }
 
 // FromLabelsToLabelAdapters casts labels.Labels to []LabelAdapter.
-// It uses unsafe, but as LabelAdapter == labels.Label this should be safe.
-// This allows us to use labels.Labels directly in protos.
+// For now it's doing an expensive conversion: TODO figure out a faster way.
 func FromLabelsToLabelAdapters(ls labels.Labels) []LabelAdapter {
-	return *(*[]LabelAdapter)(unsafe.Pointer(&ls))
+	r := make([]LabelAdapter, 0, ls.Len())
+	ls.Range(func(l labels.Label) {
+		r = append(r, LabelAdapter{Name: l.Name, Value: l.Value})
+	})
+	return r
 }
 
 // FromLabelAdaptersToMetric converts []LabelAdapter to a model.Metric.
