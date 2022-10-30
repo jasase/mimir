@@ -90,8 +90,8 @@ func TestActiveSeries_UpdateSeries_WithMatchers(t *testing.T) {
 
 func TestActiveSeries_ShouldCorrectlyHandleFingerprintCollisions(t *testing.T) {
 	metric := labels.NewBuilder(labels.FromStrings("__name__", "logs"))
-	ls1 := metric.Set("_", "ypfajYg2lsv").Labels(nil)
-	ls2 := metric.Set("_", "KiqbryhzUpn").Labels(nil)
+	ls1 := metric.Set("_", "ypfajYg2lsv").Labels(labels.EmptyLabels())
+	ls2 := metric.Set("_", "KiqbryhzUpn").Labels(labels.EmptyLabels())
 
 	require.True(t, client.Fingerprint(ls1) == client.Fingerprint(ls2))
 	c := NewActiveSeries(&Matchers{}, DefaultTimeout)
@@ -181,8 +181,8 @@ func TestActiveSeries_Purge_WithMatchers(t *testing.T) {
 
 func TestActiveSeries_PurgeOpt(t *testing.T) {
 	metric := labels.NewBuilder(labels.FromStrings("__name__", "logs"))
-	ls1 := metric.Set("_", "ypfajYg2lsv").Labels(nil)
-	ls2 := metric.Set("_", "KiqbryhzUpn").Labels(nil)
+	ls1 := metric.Set("_", "ypfajYg2lsv").Labels(labels.EmptyLabels())
+	ls2 := metric.Set("_", "KiqbryhzUpn").Labels(labels.EmptyLabels())
 
 	currentTime := time.Now()
 	c := NewActiveSeries(&Matchers{}, 59*time.Second)
@@ -406,14 +406,15 @@ func BenchmarkActiveSeries_UpdateSeries(b *testing.B) {
 	} {
 		b.Run(fmt.Sprintf("rounds=%d series=%d", tt.nRounds, tt.nSeries), func(b *testing.B) {
 			// Prepare series
+			builder := labels.SimpleBuilder{}
 			series := make([]labels.Labels, tt.nSeries)
 			for s := 0; s < tt.nSeries; s++ {
-				lbls := make(labels.Labels, 10)
-				for i := 0; i < len(lbls); i++ {
+				builder.Reset()
+				for i := 0; i < 10; i++ {
 					// Label ~20B name, ~40B value.
-					lbls[i] = labels.Label{Name: fmt.Sprintf("abcdefghijabcdefghi%d", i), Value: fmt.Sprintf("abcdefghijabcdefghijabcdefghijabcd%d", s)}
+					builder.Add(fmt.Sprintf("abcdefghijabcdefghi%d", i), fmt.Sprintf("abcdefghijabcdefghijabcdefghijabcd%d", s))
 				}
-				series[s] = lbls
+				series[s] = builder.Labels()
 			}
 
 			now := time.Now().UnixNano()
