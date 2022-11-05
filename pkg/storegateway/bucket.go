@@ -627,6 +627,7 @@ func blockSeries(
 		var (
 			symbolizedLset []symbolizedLabel
 			chks           []chunks.Meta
+			builder        labels.SimpleBuilder
 			hashBuffer     []byte
 		)
 		for _, id := range ps {
@@ -640,7 +641,7 @@ func blockSeries(
 				continue
 			}
 
-			lset, err := indexr.LookupLabelsSymbols(symbolizedLset)
+			lset, err := indexr.LookupLabelsSymbols(symbolizedLset, &builder)
 			if err != nil {
 				lookupErr = errors.Wrap(err, "lookup labels symbols")
 				return
@@ -1186,9 +1187,9 @@ func blockLabelNames(ctx context.Context, indexr *bucketIndexReader, matchers []
 	labelNames := map[string]struct{}{}
 	for seriesSet.Next() {
 		ls, _ := seriesSet.At()
-		for _, l := range ls {
+		ls.Range(func(l labels.Label) {
 			labelNames[l.Name] = struct{}{}
-		}
+		})
 	}
 	if seriesSet.Err() != nil {
 		return nil, errors.Wrap(seriesSet.Err(), "iterate series")
@@ -2402,20 +2403,20 @@ func (r *bucketIndexReader) Close() error {
 }
 
 // LookupLabelsSymbols populates label set strings from symbolized label set.
-func (r *bucketIndexReader) LookupLabelsSymbols(symbolized []symbolizedLabel) (labels.Labels, error) {
-	lbls := make(labels.Labels, len(symbolized))
-	for ix, s := range symbolized {
+func (r *bucketIndexReader) LookupLabelsSymbols(symbolized []symbolizedLabel, builder *labels.SimpleBuilder) (labels.Labels, error) {
+	builder.Reset()
+	for _, s := range symbolized {
 		ln, err := r.dec.LookupSymbol(s.name)
 		if err != nil {
-			return nil, errors.Wrap(err, "lookup label name")
+			return labels.EmptyLabels(), errors.Wrap(err, "lookup label name")
 		}
 		lv, err := r.dec.LookupSymbol(s.value)
 		if err != nil {
-			return nil, errors.Wrap(err, "lookup label value")
+			return labels.EmptyLabels(), errors.Wrap(err, "lookup label value")
 		}
-		lbls[ix] = labels.Label{Name: ln, Value: lv}
+		builder.Add(ln, lv)
 	}
-	return lbls, nil
+	return builder.Labels(), nil
 }
 
 // decodeSeriesForTime decodes a series entry from the given byte slice decoding only chunk metas that are within given min and max time.
