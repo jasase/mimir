@@ -33,6 +33,7 @@ import (
 	"github.com/grafana/mimir/pkg/storage/tsdb/block"
 	"github.com/grafana/mimir/pkg/storage/tsdb/bucketindex"
 	"github.com/grafana/mimir/pkg/storage/tsdb/metadata"
+	"github.com/grafana/mimir/pkg/util"
 )
 
 type DeduplicateFilter interface {
@@ -195,7 +196,8 @@ func DefaultGroupKey(meta metadata.Thanos) string {
 }
 
 func defaultGroupKey(res int64, lbls labels.Labels) string {
-	return fmt.Sprintf("%d@%v", res, lbls.Hash())
+	hash, _ := util.LabelsXXHash(nil, lbls)
+	return fmt.Sprintf("%d@%v", res, hash)
 }
 
 func minTime(metas []*metadata.Meta) time.Time {

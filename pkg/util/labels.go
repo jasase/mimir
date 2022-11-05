@@ -8,6 +8,7 @@ package util
 import (
 	"strings"
 
+	"github.com/cespare/xxhash"
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/model/labels"
 )
@@ -37,4 +38,16 @@ func LabelMatchersToString(matchers []*labels.Matcher) string {
 
 	out.WriteRune('}')
 	return out.String()
+}
+
+// replicate historical hash computation from Prometheus circa 2020
+func LabelsXXHash(b []byte, ls labels.Labels) (uint64, []byte) {
+	b = b[:0]
+	ls.Range(func(l labels.Label) {
+		b = append(b, l.Name...)
+		b = append(b, '\xff')
+		b = append(b, l.Value...)
+		b = append(b, '\xff')
+	})
+	return xxhash.Sum64(b), b
 }

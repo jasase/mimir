@@ -627,6 +627,7 @@ func blockSeries(
 		var (
 			symbolizedLset []symbolizedLabel
 			chks           []chunks.Meta
+			hashBuffer     []byte
 		)
 		for _, id := range ps {
 			ok, err := indexr.LoadSeriesForTime(id, &symbolizedLset, &chks, skipChunks, minTime, maxTime)
@@ -651,7 +652,7 @@ func blockSeries(
 				seriesCacheStats.seriesHashCacheRequests++
 
 				if !ok {
-					hash = lset.Hash()
+					hash, hashBuffer = util.LabelsXXHash(hashBuffer, lset)
 					seriesHashCache.Store(id, hash)
 				} else {
 					seriesCacheStats.seriesHashCacheHits++
