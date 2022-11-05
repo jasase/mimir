@@ -1748,9 +1748,12 @@ func filterSeriesByShard(series []*promql.StorageSeries, shard *sharding.ShardSe
 	}
 
 	var filtered []*promql.StorageSeries
+	var buf []byte
 
 	for _, s := range series {
-		if s.Labels().Hash()%shard.ShardCount == shard.ShardIndex {
+		var hash uint64
+		hash, buf = util.LabelsXXHash(buf, s.Labels())
+		if hash%shard.ShardCount == shard.ShardIndex {
 			filtered = append(filtered, s)
 		}
 	}
