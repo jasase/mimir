@@ -15,6 +15,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/tsdb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -81,10 +82,10 @@ func TestGroupMaxMinTime(t *testing.T) {
 func TestFilterOwnJobs(t *testing.T) {
 	jobsFn := func() []*Job {
 		return []*Job{
-			NewJob("user", "key1", nil, 0, metadata.NoneFunc, false, 0, ""),
-			NewJob("user", "key2", nil, 0, metadata.NoneFunc, false, 0, ""),
-			NewJob("user", "key3", nil, 0, metadata.NoneFunc, false, 0, ""),
-			NewJob("user", "key4", nil, 0, metadata.NoneFunc, false, 0, ""),
+			NewJob("user", "key1", labels.EmptyLabels(), 0, metadata.NoneFunc, false, 0, ""),
+			NewJob("user", "key2", labels.EmptyLabels(), 0, metadata.NoneFunc, false, 0, ""),
+			NewJob("user", "key3", labels.EmptyLabels(), 0, metadata.NoneFunc, false, 0, ""),
+			NewJob("user", "key4", labels.EmptyLabels(), 0, metadata.NoneFunc, false, 0, ""),
 		}
 	}
 
