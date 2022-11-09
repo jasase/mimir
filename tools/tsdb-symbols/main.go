@@ -136,9 +136,10 @@ func analyseSymbols(blockDir string, uniqueSymbols map[string]struct{}, uniqueSy
 	shards := len(uniqueSymbolsPerShard)
 
 	uniqueSymbolsPerBlock := map[string]struct{}{}
+	var lbls labels.Labels
+	var builder labels.SimpleBuilder
 	for p.Next() {
-		lbls := labels.Labels(nil)
-		err := idx.Series(p.At(), &lbls, nil)
+		err := idx.Series(p.At(), &builder, &lbls, nil)
 		if err != nil {
 			return fmt.Errorf("error getting series seriesID=%d: %v", p.At(), err)
 		}
@@ -148,7 +149,7 @@ func analyseSymbols(blockDir string, uniqueSymbols map[string]struct{}, uniqueSy
 			shardID = sharding.ShardFunc(lbls) % uint64(shards)
 		}
 
-		for _, l := range lbls {
+		lbls.Range(func(l labels.Label) {
 			uniqueSymbols[l.Name] = struct{}{}
 			uniqueSymbols[l.Value] = struct{}{}
 
@@ -159,7 +160,7 @@ func analyseSymbols(blockDir string, uniqueSymbols map[string]struct{}, uniqueSy
 				uniqueSymbolsPerShard[shardID][l.Name] = struct{}{}
 				uniqueSymbolsPerShard[shardID][l.Value] = struct{}{}
 			}
-		}
+		})
 	}
 
 	if p.Err() != nil {
