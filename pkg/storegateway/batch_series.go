@@ -45,16 +45,16 @@ type batchedSeriesSet struct {
 func batchedBlockSeries(
 	ctx context.Context,
 	batchSize int,
-	indexr *bucketIndexReader,                       // Index reader for block.
-	chunkr *bucketChunkReader,                       // Chunk reader for block.
-	matchers []*labels.Matcher,                      // Series matchers.
-	shard *sharding.ShardSelector,                   // Shard selector.
+	indexr *bucketIndexReader, // Index reader for block.
+	chunkr *bucketChunkReader, // Chunk reader for block.
+	matchers []*labels.Matcher, // Series matchers.
+	shard *sharding.ShardSelector, // Shard selector.
 	seriesHashCache *hashcache.BlockSeriesHashCache, // Block-specific series hash cache (used only if shard selector is specified).
-	chunksLimiter ChunksLimiter,                     // Rate limiter for loading chunks.
-	seriesLimiter SeriesLimiter,                     // Rate limiter for loading series.
-	skipChunks bool,                                 // If true chunks are not loaded and minTime/maxTime are ignored.
-	minTime, maxTime int64,                          // Series must have data in this time range to be returned (ignored if skipChunks=true).
-	loadAggregates []storepb.Aggr,                   // List of aggregates to load when loading chunks.
+	chunksLimiter ChunksLimiter, // Rate limiter for loading chunks.
+	seriesLimiter SeriesLimiter, // Rate limiter for loading series.
+	skipChunks bool, // If true chunks are not loaded and minTime/maxTime are ignored.
+	minTime, maxTime int64, // Series must have data in this time range to be returned (ignored if skipChunks=true).
+	loadAggregates []storepb.Aggr, // List of aggregates to load when loading chunks.
 	logger log.Logger,
 ) (storepb.SeriesSet, error) {
 	if batchSize <= 0 {
@@ -142,7 +142,7 @@ func (s *batchedSeriesSet) preload() bool {
 			return false
 		}
 		if !ok {
-			// No matching chunks for this time duration, skip series and extend nextBatch
+			// No matching chunks for this time duration, skip series
 			continue
 		}
 
@@ -165,26 +165,15 @@ func (s *batchedSeriesSet) preload() bool {
 		entry := seriesEntry{lset: lset}
 
 		if !s.skipChunks {
-			// Schedule loading chunks.
-			entry.refs = make([]chunks.ChunkRef, 0, len(chks))
-			entry.chks = make([]storepb.AggrChunk, 0, len(chks))
-			for j, meta := range chks {
-				// seriesEntry s is appended to res, but not at every outer loop iteration,
-				// therefore len(res) is the index we need here, not outer loop iteration number.
-				if err := s.chunkr.addLoad(meta.Ref, len(s.preloaded), j); err != nil {
-					s.err = errors.Wrap(err, "add chunk load")
-					return false
-				}
-				entry.chks = append(entry.chks, storepb.AggrChunk{
-					MinTime: meta.MinTime,
-					MaxTime: meta.MaxTime,
-				})
-				entry.refs = append(entry.refs, meta.Ref)
-			}
-
 			// Ensure sample limit through chunksLimiter if we return chunks.
-			if err := s.chunksLimiter.Reserve(uint64(len(entry.chks))); err != nil {
+			if err = s.chunksLimiter.Reserve(uint64(len(chks))); err != nil {
 				s.err = errors.Wrap(err, "exceeded chunks limit")
+				return false
+			}
+			// seriesEntry entry is appended to preloaded, but not at every outer loop iteration,
+			// therefore len(preloaded) is the index we need here, not outer loop iteration number.
+			entry.refs, entry.chks, s.err = s.scheduleChunksLoading(chks, len(s.preloaded))
+			if s.err != nil {
 				return false
 			}
 		}
@@ -213,6 +202,24 @@ func (s *batchedSeriesSet) preload() bool {
 	}
 
 	return true
+}
+
+func (s *batchedSeriesSet) scheduleChunksLoading(metas []chunks.Meta, seriesIdx int) ([]chunks.ChunkRef, []storepb.AggrChunk, error) {
+	refs := make([]chunks.ChunkRef, 0, len(metas))
+	chks := make([]storepb.AggrChunk, 0, len(metas))
+
+	for j, meta := range metas {
+		if err := s.chunkr.addLoad(meta.Ref, seriesIdx, j); err != nil {
+			return nil, nil, errors.Wrap(err, "add chunk load")
+		}
+		chks = append(chks, storepb.AggrChunk{
+			MinTime: meta.MinTime,
+			MaxTime: meta.MaxTime,
+		})
+		refs = append(refs, meta.Ref)
+	}
+
+	return refs, chks, nil
 }
 
 func (s *batchedSeriesSet) resetPreloaded() {
