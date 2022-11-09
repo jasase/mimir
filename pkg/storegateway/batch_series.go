@@ -20,12 +20,12 @@ type batchedSeriesSet struct {
 	ctx      context.Context
 	postings []storage.SeriesRef
 
-	batchSize int
-	i         int // where we're at in the labels and chunks
-	iOffset   int // if i==0, which index in postings does this correspond to
-	preloaded []seriesEntry
-	stats     *queryStats
-	err       error
+	batchSize               int
+	currBatchIdx            int
+	currBatchPostingsOffset int
+	preloaded               []seriesEntry
+	stats                   *queryStats
+	err                     error
 
 	indexr           *bucketIndexReader              // Index reader for block.
 	chunkr           *bucketChunkReader              // Chunk reader for block.
@@ -81,33 +81,33 @@ func batchedBlockSeries(
 	}
 
 	return &batchedSeriesSet{
-		batchSize:       batchSize,
-		preloaded:       make([]seriesEntry, 0, batchSize),
-		stats:           &seriesCacheStats,
-		iOffset:         -batchSize,
-		ctx:             ctx,
-		postings:        ps,
-		indexr:          indexr,
-		chunkr:          chunkr,
-		matchers:        matchers,
-		shard:           shard,
-		seriesHashCache: seriesHashCache,
-		chunksLimiter:   chunksLimiter,
-		seriesLimiter:   seriesLimiter,
-		skipChunks:      skipChunks,
-		minTime:         minTime,
-		maxTime:         maxTime,
-		loadAggregates:  loadAggregates,
-		logger:          logger,
+		batchSize:               batchSize,
+		preloaded:               make([]seriesEntry, 0, batchSize),
+		stats:                   &seriesCacheStats,
+		currBatchPostingsOffset: -batchSize,
+		ctx:                     ctx,
+		postings:                ps,
+		indexr:                  indexr,
+		chunkr:                  chunkr,
+		matchers:                matchers,
+		shard:                   shard,
+		seriesHashCache:         seriesHashCache,
+		chunksLimiter:           chunksLimiter,
+		seriesLimiter:           seriesLimiter,
+		skipChunks:              skipChunks,
+		minTime:                 minTime,
+		maxTime:                 maxTime,
+		loadAggregates:          loadAggregates,
+		logger:                  logger,
 	}, nil
 }
 
 func (s *batchedSeriesSet) Next() bool {
-	if s.iOffset+s.i >= len(s.postings)-1 || s.err != nil {
+	if s.currBatchPostingsOffset+s.currBatchIdx >= len(s.postings)-1 || s.err != nil {
 		return false
 	}
-	s.i++
-	if s.i >= len(s.preloaded) {
+	s.currBatchIdx++
+	if s.currBatchIdx >= len(s.preloaded) {
 		return s.preload()
 	}
 	return true
@@ -115,16 +115,16 @@ func (s *batchedSeriesSet) Next() bool {
 
 func (s *batchedSeriesSet) preload() bool {
 	s.resetPreloaded()
-	s.iOffset += s.batchSize
-	if s.iOffset > len(s.postings) {
+	s.currBatchPostingsOffset += s.batchSize
+	if s.currBatchPostingsOffset > len(s.postings) {
 		return false
 	}
 
-	end := s.iOffset + s.batchSize
+	end := s.currBatchPostingsOffset + s.batchSize
 	if end > len(s.postings) {
 		end = len(s.postings)
 	}
-	nextBatch := s.postings[s.iOffset:end]
+	nextBatch := s.postings[s.currBatchPostingsOffset:end]
 
 	if err := s.indexr.PreloadSeries(s.ctx, nextBatch); err != nil {
 		s.err = errors.Wrap(err, "preload series")
@@ -236,14 +236,14 @@ func (s *batchedSeriesSet) resetPreloaded() {
 		s.chunkr.reset()
 		s.cleanupFuncs = append(s.cleanupFuncs, s.chunkr.unload)
 	}
-	s.i = 0
+	s.currBatchIdx = 0
 }
 
 func (s *batchedSeriesSet) At() (labels.Labels, []storepb.AggrChunk) {
-	if s.i >= len(s.preloaded) {
+	if s.currBatchIdx >= len(s.preloaded) {
 		return nil, nil
 	}
-	return s.preloaded[s.i].lset, s.preloaded[s.i].chks
+	return s.preloaded[s.currBatchIdx].lset, s.preloaded[s.currBatchIdx].chks
 }
 
 func (s *batchedSeriesSet) Err() error {
