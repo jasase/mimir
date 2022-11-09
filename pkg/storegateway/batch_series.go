@@ -27,16 +27,16 @@ type batchedSeriesSet struct {
 	stats                   *queryStats
 	err                     error
 
-	indexr           *bucketIndexReader              // Index reader for block.
-	chunkr           *bucketChunkReader              // Chunk reader for block.
-	matchers         []*labels.Matcher               // Series matchers.
-	shard            *sharding.ShardSelector         // Shard selector.
-	seriesHashCache  *hashcache.BlockSeriesHashCache // Block-specific series hash cache (used only if shard selector is specified).
-	chunksLimiter    ChunksLimiter                   // Rate limiter for loading chunks.
-	seriesLimiter    SeriesLimiter                   // Rate limiter for loading series.
-	skipChunks       bool                            // If true chunks are not loaded and minTime/maxTime are ignored.
-	minTime, maxTime int64                           // Series must have data in this time range to be returned (ignored if skipChunks=true).
-	loadAggregates   []storepb.Aggr                  // List of aggregates to load when loading chunks.
+	indexr           *bucketIndexReader      // Index reader for block.
+	chunkr           *bucketChunkReader      // Chunk reader for block.
+	matchers         []*labels.Matcher       // Series matchers.
+	shard            *sharding.ShardSelector // Shard selector.
+	seriesHasher     seriesHasher            // Block-specific series hash cache (used only if shard selector is specified).
+	chunksLimiter    ChunksLimiter           // Rate limiter for loading chunks.
+	seriesLimiter    SeriesLimiter           // Rate limiter for loading series.
+	skipChunks       bool                    // If true chunks are not loaded and minTime/maxTime are ignored.
+	minTime, maxTime int64                   // Series must have data in this time range to be returned (ignored if skipChunks=true).
+	loadAggregates   []storepb.Aggr          // List of aggregates to load when loading chunks.
 	logger           log.Logger
 
 	cleanupFuncs []func()
@@ -45,16 +45,16 @@ type batchedSeriesSet struct {
 func batchedBlockSeries(
 	ctx context.Context,
 	batchSize int,
-	indexr *bucketIndexReader, // Index reader for block.
-	chunkr *bucketChunkReader, // Chunk reader for block.
-	matchers []*labels.Matcher, // Series matchers.
-	shard *sharding.ShardSelector, // Shard selector.
+	indexr *bucketIndexReader,                       // Index reader for block.
+	chunkr *bucketChunkReader,                       // Chunk reader for block.
+	matchers []*labels.Matcher,                      // Series matchers.
+	shard *sharding.ShardSelector,                   // Shard selector.
 	seriesHashCache *hashcache.BlockSeriesHashCache, // Block-specific series hash cache (used only if shard selector is specified).
-	chunksLimiter ChunksLimiter, // Rate limiter for loading chunks.
-	seriesLimiter SeriesLimiter, // Rate limiter for loading series.
-	skipChunks bool, // If true chunks are not loaded and minTime/maxTime are ignored.
-	minTime, maxTime int64, // Series must have data in this time range to be returned (ignored if skipChunks=true).
-	loadAggregates []storepb.Aggr, // List of aggregates to load when loading chunks.
+	chunksLimiter ChunksLimiter,                     // Rate limiter for loading chunks.
+	seriesLimiter SeriesLimiter,                     // Rate limiter for loading series.
+	skipChunks bool,                                 // If true chunks are not loaded and minTime/maxTime are ignored.
+	minTime, maxTime int64,                          // Series must have data in this time range to be returned (ignored if skipChunks=true).
+	loadAggregates []storepb.Aggr,                   // List of aggregates to load when loading chunks.
 	logger log.Logger,
 ) (storepb.SeriesSet, error) {
 	if batchSize <= 0 {
@@ -91,7 +91,7 @@ func batchedBlockSeries(
 		chunkr:                  chunkr,
 		matchers:                matchers,
 		shard:                   shard,
-		seriesHashCache:         seriesHashCache,
+		seriesHasher:            cachedSeriesHasher{cache: seriesHashCache, stats: &seriesCacheStats},
 		chunksLimiter:           chunksLimiter,
 		seriesLimiter:           seriesLimiter,
 		skipChunks:              skipChunks,
@@ -152,21 +152,8 @@ func (s *batchedSeriesSet) preload() bool {
 			return false
 		}
 
-		// Skip the series if it doesn't belong to the shard.
-		if s.shard != nil {
-			hash, ok := s.seriesHashCache.Fetch(id)
-			s.stats.seriesHashCacheRequests++
-
-			if !ok {
-				hash = lset.Hash()
-				s.seriesHashCache.Store(id, hash)
-			} else {
-				s.stats.seriesHashCacheHits++
-			}
-
-			if hash%s.shard.ShardCount != s.shard.ShardIndex {
-				continue
-			}
+		if !shardOwned(s.shard, s.seriesHasher, id, lset) {
+			continue
 		}
 
 		// Check series limit after filtering out series not belonging to the requested shard (if any).
@@ -261,4 +248,35 @@ func (s *batchedSeriesSet) CleanupFunc() func() {
 			cleanup()
 		}
 	}
+}
+
+type seriesHasher interface {
+	Hash(seriesID storage.SeriesRef, lset labels.Labels) uint64
+}
+
+type cachedSeriesHasher struct {
+	cache *hashcache.BlockSeriesHashCache
+	stats *queryStats
+}
+
+func (b cachedSeriesHasher) Hash(id storage.SeriesRef, lset labels.Labels) uint64 {
+	hash, ok := b.cache.Fetch(id)
+	b.stats.seriesHashCacheRequests++
+
+	if !ok {
+		hash = lset.Hash()
+		b.cache.Store(id, hash)
+	} else {
+		b.stats.seriesHashCacheHits++
+	}
+	return hash
+}
+
+func shardOwned(shard *sharding.ShardSelector, hasher seriesHasher, id storage.SeriesRef, lset labels.Labels) bool {
+	if shard == nil {
+		return true
+	}
+	hash := hasher.Hash(id, lset)
+
+	return hash%shard.ShardCount == shard.ShardIndex
 }
