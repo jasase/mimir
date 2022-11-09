@@ -447,7 +447,7 @@ func (db *DBReadOnly) FlushWAL(dir string) (returnErr error) {
 	}
 	// Add +1 millisecond to block maxt because block intervals are half-open: [b.MinTime, b.MaxTime).
 	// Because of this block intervals are always +1 than the total samples it includes.
-	_, err = compactor.Write(dir, rh, mint, maxt+1, nil)
+	_, err = compactor.Write(dir, rh, mint, maxt+1, nil, nil)
 	return errors.Wrap(err, "writing WAL")
 }
 
@@ -1182,7 +1182,7 @@ func (db *DB) compactOOO(dest string, oooHead *OOOCompactionHead) (_ []ulid.ULID
 	for t := blockSize * (oooHeadMint / blockSize); t <= oooHeadMaxt; t = t + blockSize {
 		mint, maxt := t, t+blockSize
 		// Block intervals are half-open: [b.MinTime, b.MaxTime). Block intervals are always +1 than the total samples it includes.
-		uid, err := db.compactor.Write(dest, oooHead.CloneForTimeRange(mint, maxt-1), mint, maxt, nil)
+		uid, err := db.compactor.Write(dest, oooHead.CloneForTimeRange(mint, maxt-1), mint, maxt, nil, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -1220,7 +1220,7 @@ func (db *DB) compactOOO(dest string, oooHead *OOOCompactionHead) (_ []ulid.ULID
 // compactHead compacts the given RangeHead.
 // The compaction mutex should be held before calling this method.
 func (db *DB) compactHead(head *RangeHead) error {
-	uid, err := db.compactor.Write(db.dir, head, head.MinTime(), head.BlockMaxTime(), nil)
+	uid, err := db.compactor.Write(db.dir, head, head.MinTime(), head.BlockMaxTime(), nil, nil)
 	if err != nil {
 		return errors.Wrap(err, "persist head block")
 	}
@@ -1259,7 +1259,7 @@ func (db *DB) compactBlocks() (err error) {
 		default:
 		}
 
-		uid, err := db.compactor.Compact(db.dir, plan, db.blocks)
+		uid, err := db.compactor.Compact(db.dir, plan, db.blocks, nil)
 		if err != nil {
 			return errors.Wrapf(err, "compact %s", plan)
 		}
@@ -1758,7 +1758,7 @@ func (db *DB) Snapshot(dir string, withHead bool) error {
 	head := NewRangeHead(db.head, mint, maxt)
 	// Add +1 millisecond to block maxt because block intervals are half-open: [b.MinTime, b.MaxTime).
 	// Because of this block intervals are always +1 than the total samples it includes.
-	if _, err := db.compactor.Write(dir, head, mint, maxt+1, nil); err != nil {
+	if _, err := db.compactor.Write(dir, head, mint, maxt+1, nil, nil); err != nil {
 		return errors.Wrap(err, "snapshot head block")
 	}
 	return nil

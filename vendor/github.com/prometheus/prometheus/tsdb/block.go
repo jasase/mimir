@@ -659,7 +659,7 @@ func (pb *Block) CleanTombstones(dest string, c Compactor) (*ulid.ULID, bool, er
 	}
 
 	meta := pb.Meta()
-	uid, err := c.Write(dest, pb, pb.meta.MinTime, pb.meta.MaxTime, &meta)
+	uid, err := c.Write(dest, pb, pb.meta.MinTime, pb.meta.MaxTime, &meta, nil)
 	if err != nil {
 		return nil, false, err
 	}
