@@ -1577,17 +1577,17 @@ func (m *tsdbCompactorMock) Plan(dir string) ([]string, error) {
 	return args.Get(0).([]string), args.Error(1)
 }
 
-func (m *tsdbCompactorMock) Write(dest string, b tsdb.BlockReader, mint, maxt int64, parent *tsdb.BlockMeta) (ulid.ULID, error) {
+func (m *tsdbCompactorMock) Write(dest string, b tsdb.BlockReader, mint, maxt int64, parent *tsdb.BlockMeta, shard func(labels.Labels) uint64) (ulid.ULID, error) {
 	args := m.Called(dest, b, mint, maxt, parent)
 	return args.Get(0).(ulid.ULID), args.Error(1)
 }
 
-func (m *tsdbCompactorMock) Compact(dest string, dirs []string, open []*tsdb.Block) (ulid.ULID, error) {
+func (m *tsdbCompactorMock) Compact(dest string, dirs []string, open []*tsdb.Block, shard func(labels.Labels) uint64) (ulid.ULID, error) {
 	args := m.Called(dest, dirs, open)
 	return args.Get(0).(ulid.ULID), args.Error(1)
 }
 
-func (m *tsdbCompactorMock) CompactWithSplitting(dest string, dirs []string, open []*tsdb.Block, shardCount uint64) (result []ulid.ULID, _ error) {
+func (m *tsdbCompactorMock) CompactWithSplitting(dest string, dirs []string, open []*tsdb.Block, shardCount uint64, shard func(labels.Labels) uint64) (result []ulid.ULID, _ error) {
 	args := m.Called(dest, dirs, open, shardCount)
 	return args.Get(0).([]ulid.ULID), args.Error(1)
 }

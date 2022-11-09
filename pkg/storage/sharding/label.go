@@ -9,7 +9,14 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/prometheus/model/labels"
+
+	"github.com/grafana/mimir/pkg/util"
 )
+
+func ShardFunc(l labels.Labels) uint64 {
+	hash, _ := util.LabelsXXHash(nil, l)
+	return hash
+}
 
 const (
 	// ShardLabel is a reserved label referencing a shard on read path.

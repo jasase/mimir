@@ -12,6 +12,7 @@ import (
 	"syscall"
 
 	golog "github.com/go-kit/log"
+	"github.com/grafana/mimir/pkg/storage/sharding"
 
 	"github.com/prometheus/prometheus/tsdb"
 )
@@ -82,7 +83,7 @@ func main() {
 		log.Fatalln("creating compator", err)
 	}
 
-	_, err = c.CompactWithSplitting(outputDir, blockDirs, blocks, uint64(shardCount))
+	_, err = c.CompactWithSplitting(outputDir, blockDirs, blocks, uint64(shardCount), sharding.ShardFunc)
 	if err != nil {
 		log.Fatalln("compacting", err)
 	}

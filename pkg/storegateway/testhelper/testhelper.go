@@ -21,6 +21,7 @@ import (
 	"github.com/prometheus/prometheus/tsdb"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/grafana/mimir/pkg/storage/sharding"
 	"github.com/grafana/mimir/pkg/storage/tsdb/metadata"
 )
 
@@ -122,7 +123,7 @@ func createBlock(
 		return id, errors.Wrap(err, "create compactor")
 	}
 
-	id, err = c.Write(dir, h, mint, maxt, nil)
+	id, err = c.Write(dir, h, mint, maxt, nil, sharding.ShardFunc)
 	if err != nil {
 		return id, errors.Wrap(err, "write block")
 	}

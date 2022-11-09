@@ -243,7 +243,7 @@ type Planner interface {
 type Compactor interface {
 	// Write persists a Block into a directory.
 	// No Block is written when resulting Block has 0 samples, and returns empty ulid.ULID{}.
-	Write(dest string, b tsdb.BlockReader, mint, maxt int64, parent *tsdb.BlockMeta) (ulid.ULID, error)
+	Write(dest string, b tsdb.BlockReader, mint, maxt int64, parent *tsdb.BlockMeta, shard func(labels.Labels) uint64) (ulid.ULID, error)
 
 	// Compact runs compaction against the provided directories. Must
 	// only be called concurrently with results of Plan().
@@ -253,12 +253,12 @@ type Compactor interface {
 	//  * No block is written.
 	//  * The source dirs are marked Deletable.
 	//  * Returns empty ulid.ULID{}.
-	Compact(dest string, dirs []string, open []*tsdb.Block) (ulid.ULID, error)
+	Compact(dest string, dirs []string, open []*tsdb.Block, shard func(labels.Labels) uint64) (ulid.ULID, error)
 
 	// CompactWithSplitting merges and splits the input blocks into shardCount number of output blocks,
 	// and returns slice of block IDs. Position of returned block ID in the result slice corresponds to the shard index.
 	// If given output block has no series, corresponding block ID will be zero ULID value.
-	CompactWithSplitting(dest string, dirs []string, open []*tsdb.Block, shardCount uint64) (result []ulid.ULID, _ error)
+	CompactWithSplitting(dest string, dirs []string, open []*tsdb.Block, shardCount uint64, shard func(labels.Labels) uint64) (result []ulid.ULID, _ error)
 }
 
 // runCompactionJob plans and runs a single compaction against the provided job. The compacted result
@@ -353,10 +353,10 @@ func (c *BucketCompactor) runCompactionJob(ctx context.Context, job *Job) (shoul
 	compactionBegin := time.Now()
 
 	if job.UseSplitting() {
-		compIDs, err = c.comp.CompactWithSplitting(subDir, blocksToCompactDirs, nil, uint64(job.SplittingShards()))
+		compIDs, err = c.comp.CompactWithSplitting(subDir, blocksToCompactDirs, nil, uint64(job.SplittingShards()), sharding.ShardFunc)
 	} else {
 		var compID ulid.ULID
-		compID, err = c.comp.Compact(subDir, blocksToCompactDirs, nil)
+		compID, err = c.comp.Compact(subDir, blocksToCompactDirs, nil, sharding.ShardFunc)
 		compIDs = append(compIDs, compID)
 	}
 	if err != nil {

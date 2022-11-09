@@ -40,6 +40,7 @@ import (
 
 	"github.com/thanos-io/objstore"
 
+	"github.com/grafana/mimir/pkg/storage/sharding"
 	mimir_tsdb "github.com/grafana/mimir/pkg/storage/tsdb"
 	"github.com/grafana/mimir/pkg/storage/tsdb/block"
 	"github.com/grafana/mimir/pkg/storage/tsdb/bucketindex"
@@ -728,7 +729,7 @@ func createBlockWithOptions(
 		return id, errors.Wrap(err, "create compactor")
 	}
 
-	id, err = c.Write(dir, h, mint, maxt, nil)
+	id, err = c.Write(dir, h, mint, maxt, nil, sharding.ShardFunc)
 	if err != nil {
 		return id, errors.Wrap(err, "write block")
 	}
