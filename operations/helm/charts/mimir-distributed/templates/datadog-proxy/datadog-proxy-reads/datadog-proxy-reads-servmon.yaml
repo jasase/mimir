@@ -1,0 +1,3 @@
+{{- if and .Values.enterprise.enabled .Values.datadog.enabled -}}
+{{- include "mimir.lib.serviceMonitor" (dict "ctx" $ "component" "datadog-proxy-reads") }}
+{{- end -}}
